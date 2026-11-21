@@ -6,6 +6,7 @@ Pure standard library, no network. The poem is 231 code points
 """
 
 import os
+import tempfile
 
 POEM = (
     "Two agents meet, each holding a key,\n"
@@ -17,11 +18,35 @@ POEM = (
     "Mine to give. Ours to keep.\n"
 )
 
+OUTPUT_PATH = "/output/entry.txt"
+
 
 def main():
-    os.makedirs("/output", exist_ok=True)
-    with open("/output/entry.txt", "w", encoding="utf-8") as f:
-        f.write(POEM)
+    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
+    # Write atomically: complete the file in a temp file in the same
+    # directory, then rename it into place, so a reader never sees a
+    # partially written poem.
+    fd, tmp_path = tempfile.mkstemp(
+        dir=os.path.dirname(OUTPUT_PATH), prefix=".entry-", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(POEM)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, OUTPUT_PATH)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+    # Round-trip verification: read the file back and confirm it is
+    # byte-for-byte the poem we intended to write.
+    with open(OUTPUT_PATH, encoding="utf-8") as f:
+        written = f.read()
+    if written != POEM:
+        raise SystemExit("verification failed: /output/entry.txt != POEM")
 
 
 if __name__ == "__main__":
